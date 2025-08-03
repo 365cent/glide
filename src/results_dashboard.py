@@ -2,6 +2,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import argparse
 from pathlib import Path
 
 def create_dashboard(log_type: str, output_dir: Path = Path("results")):

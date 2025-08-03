@@ -34,7 +34,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Import configuration
-from src.config import EMBEDDINGS_DIR, MODELS_DIR, RESULTS_DIR
+from config import EMBEDDINGS_DIR, MODELS_DIR, RESULTS_DIR
 
 def load_embeddings_and_labels(log_type: str, embedding_type: str):
     """Load embeddings and labels for a specific log type and embedding type."""
