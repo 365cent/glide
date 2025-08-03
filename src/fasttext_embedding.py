@@ -50,7 +50,7 @@ from functools import partial
 from halo import Halo
 
 # Import configuration
-from src.config import EMBEDDINGS_DIR as OUTPUT_DIR, PROCESSED_DIR, VECTOR_SIZE
+from config import EMBEDDINGS_DIR as OUTPUT_DIR, PROCESSED_DIR, VECTOR_SIZE
 
 def parse_example(example):
     """Parse a TensorFlow Example protocol buffer."""
