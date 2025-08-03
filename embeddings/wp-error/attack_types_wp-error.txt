@@ -1,0 +1,3 @@
+Attack Types:
+  0: is_anomaly
+  1: is_db_error

@@ -1,0 +1,13 @@
+tensorflow
+pandas
+numpy
+tqdm
+matplotlib
+scikit-learn
+seaborn
+halo
+gensim
+torch
+transformers
+
+
