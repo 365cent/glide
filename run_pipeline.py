@@ -103,14 +103,22 @@ class PipelineExecutor:
         """Check if required data is available for processing."""
         logger.info("Checking data availability...")
         
-        # Check for log files
-        log_files = list(LOGS_DIR.rglob("*.log"))
+        # Check for log files (including .log.1, .log.2, etc.)
+        log_files = []
+        for file in LOGS_DIR.rglob("*"):
+            if file.is_file() and ".log" in file.name:
+                log_files.append(file)
+        
         if not log_files:
             logger.warning("No log files found in logs directory")
             return False
         
-        # Check for label files
-        label_files = list(LABELS_DIR.rglob("*.json"))
+        # Check for label files (they are .log files, not .json files)
+        label_files = []
+        for file in LABELS_DIR.rglob("*"):
+            if file.is_file() and ".log" in file.name:
+                label_files.append(file)
+        
         if not label_files:
             logger.warning("No label files found in labels directory")
             return False
@@ -130,7 +138,7 @@ class PipelineExecutor:
             logger.info(f"Found {len(processed_files)} existing TFRecord files. Skipping preprocessing.")
             return True
         
-        command = f"python {self.src_dir}/preprocessing.py"
+        command = f"python3 {self.src_dir}/preprocessing.py"
         return self.run_command(command, "Data Preprocessing", str(self.base_dir))
     
     def stage_embedding_generation(self) -> bool:
@@ -159,11 +167,11 @@ class PipelineExecutor:
             
             # Generate embeddings
             if embedding_type == "fasttext":
-                command = f"python {self.src_dir}/fasttext_embedding.py --log_type {self.log_type}"
+                command = f"python3 {self.src_dir}/fasttext_embedding.py --log_type {self.log_type}"
             elif embedding_type == "word2vec":
-                command = f"python {self.src_dir}/word2vec_embedding.py --log_type {self.log_type}"
+                command = f"python3 {self.src_dir}/word2vec_embedding.py --log_type {self.log_type}"
             elif embedding_type == "logbert":
-                command = f"python {self.src_dir}/logbert_embeddings.py --log_type {self.log_type}"
+                command = f"python3 {self.src_dir}/logbert_embeddings.py --log_type {self.log_type}"
             else:
                 logger.warning(f"Unknown embedding type: {embedding_type}")
                 continue
@@ -194,7 +202,7 @@ class PipelineExecutor:
                 continue
             
             # Train model
-            command = f"python {self.src_dir}/transformer.py --log_type {self.log_type} --embedding_type {embedding_type}"
+            command = f"python3 {self.src_dir}/transformer.py --log_type {self.log_type} --embedding_type {embedding_type}"
             
             if self.run_command(command, f"{embedding_type} Model Training", str(self.base_dir)):
                 success_count += 1
@@ -208,7 +216,7 @@ class PipelineExecutor:
         logger.info("=" * 60)
         
         # Build evaluation command
-        eval_command = f"python {self.src_dir}/evaluate_models.py --log_type {self.log_type} --embedding_types {' '.join(self.embedding_types)}"
+        eval_command = f"python3 {self.src_dir}/evaluate_models.py --log_type {self.log_type} --embedding_types {' '.join(self.embedding_types)}"
         
         if self.optimize_thresholds:
             eval_command += " --optimize_thresholds"
@@ -222,11 +230,11 @@ class PipelineExecutor:
         logger.info("=" * 60)
         
         # Generate evaluation matrix
-        matrix_command = f"python {self.src_dir}/generate_evaluation_matrix.py --log_type {self.log_type}"
+        matrix_command = f"python3 {self.src_dir}/generate_evaluation_matrix.py --log_type {self.log_type}"
         matrix_success = self.run_command(matrix_command, "Evaluation Matrix Generation", str(self.base_dir))
         
         # Generate results dashboard
-        dashboard_command = f"python {self.src_dir}/results_dashboard.py --log_type {self.log_type}"
+        dashboard_command = f"python3 {self.src_dir}/results_dashboard.py --log_type {self.log_type}"
         dashboard_success = self.run_command(dashboard_command, "Results Dashboard Generation", str(self.base_dir))
         
         return matrix_success and dashboard_success
@@ -250,8 +258,16 @@ class PipelineExecutor:
         
         # Collect data statistics
         try:
-            log_files = list(LOGS_DIR.rglob("*.log"))
-            label_files = list(LABELS_DIR.rglob("*.json"))
+            log_files = []
+            for file in LOGS_DIR.rglob("*"):
+                if file.is_file() and ".log" in file.name:
+                    log_files.append(file)
+            
+            label_files = []
+            for file in LABELS_DIR.rglob("*"):
+                if file.is_file() and ".log" in file.name:
+                    label_files.append(file)
+            
             processed_files = list(PROCESSED_DIR.rglob("*.tfrecord"))
             
             report["data_statistics"] = {

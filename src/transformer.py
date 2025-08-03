@@ -52,7 +52,7 @@ from imblearn.over_sampling import SMOTE
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.teacher_student import Teacher, Student, distillation_loss # Import teacher-student components
+# from src.teacher_student import Teacher, Student, distillation_loss # Import teacher-student components
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
