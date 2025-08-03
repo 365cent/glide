@@ -91,6 +91,7 @@ tmp/
 *.tmp
 
 # Results and output
+processed/
 results/
 output/
 plots/
