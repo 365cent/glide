@@ -52,10 +52,8 @@ from functools import partial
 from halo import Halo
 import gensim.downloader as api
 
-# Configuration
-OUTPUT_DIR = Path("embeddings")
-PROCESSED_DIR = Path("processed")
-VECTOR_SIZE = 300  # Standard Word2Vec vector size
+# Import configuration
+from src.config import EMBEDDINGS_DIR as OUTPUT_DIR, PROCESSED_DIR, VECTOR_SIZE
 
 def parse_example(example):
     """Parse a TensorFlow Example protocol buffer."""
@@ -379,7 +377,6 @@ def process_embeddings(df, model, use_global_attack_list=False):
 
 def visualize_embeddings(df, output_file=None):
     """Create t-SNE visualization with balanced class sampling for performance and minority visibility."""
-    # ------------------------- NEW IMPLEMENTATION START -------------------------
     # Parameters for sampling – tweak here if necessary
     MAX_TOTAL_POINTS = 50000   # Hard cap on total points sent to t-SNE
     MAX_POINTS_PER_CLASS = 1500  # Limit for any single class to avoid domination
@@ -387,14 +384,10 @@ def visualize_embeddings(df, output_file=None):
     spinner = Halo(text="Preparing visualization data", spinner='dots')
     spinner.start()
 
-    # -------------------------------------------------------------------------
-    # 1. Build visualization labels for every row (normal vs attacks etc.)
-    # ---
+    # Build visualization labels for every row (normal vs attacks etc.)
     df['viz_label'] = df.apply(lambda row: 'Normal' if not row['label_json'] else 'Attack', axis=1)
 
-    # -------------------------------------------------------------------------
-    # 2. Sample data for t-SNE to manage computational load
-    # ---
+    # Sample data for t-SNE to manage computational load
     sampled_df = pd.DataFrame()
     unique_viz_labels = df['viz_label'].unique()
 
@@ -414,9 +407,7 @@ def visualize_embeddings(df, output_file=None):
         print("No data to visualize after sampling.")
         return
 
-    # -------------------------------------------------------------------------
-    # 3. Perform t-SNE dimensionality reduction
-    # ---
+    # Perform t-SNE dimensionality reduction
     spinner.text = "Running t-SNE dimensionality reduction"
     try:
         tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000, learning_rate=200, metric='cosine')
@@ -429,9 +420,7 @@ def visualize_embeddings(df, output_file=None):
         print("Skipping t-SNE visualization.")
         return
 
-    # -------------------------------------------------------------------------
-    # 4. Plotting
-    # ---
+    # Plotting
     spinner.text = "Generating plot"
     plt.figure(figsize=(12, 10))
     sns.scatterplot(
@@ -471,4 +460,8 @@ def get_labels_from_json(label_json_str):
         return {normalize_label(label) for label in labels if label}
     except json.JSONDecodeError:
         return set()
+
+
+if __name__ == '__main__':
+    main()
 

@@ -56,14 +56,12 @@ import hashlib
 import signal
 import sys
 
-# Configuration
-OUTPUT_DIR = Path("embeddings")
-PROCESSED_DIR = Path("processed")
-CHECKPOINT_DIR = Path("checkpoints") / "logbert"
+# Import configuration
+from src.config import EMBEDDINGS_DIR as OUTPUT_DIR, PROCESSED_DIR, CHECKPOINT_DIR, VECTOR_SIZE, MAX_SEQ_LENGTH, BATCH_SIZE, NUM_WORKERS
+
+# BERT-specific configuration
+CHECKPOINT_DIR = CHECKPOINT_DIR / "logbert"
 VECTOR_SIZE = 2314  # Enhanced BERT: CLS(768) + Mean(768) + Max(768) + Attention(10)
-MAX_SEQ_LENGTH = 128
-BATCH_SIZE = 8
-NUM_WORKERS = 2
 
 # Performance thresholds for auto-optimization
 SMALL_DATASET_THRESHOLD = 10000    # < 10K entries

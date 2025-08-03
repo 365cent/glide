@@ -6,6 +6,11 @@ import mimetypes
 from pathlib import Path
 import tensorflow as tf
 import re
+import sys
+
+# Add the parent directory to the Python path
+sys.path.append(str(Path(__file__).parent.parent))
+
 from src.config import LOGS_DIR, LABELS_DIR, PROCESSED_DIR
 
 # Configure logging
@@ -93,6 +98,23 @@ class LogPreprocessor:
             
         return possible_matches[0]
 
+    def is_proper_label_file(self, file_path):
+        """Check if a file is a proper JSON label file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                # Read first few lines to check if it's JSON
+                first_lines = [f.readline().strip() for _ in range(5)]
+                for line in first_lines:
+                    if line:
+                        try:
+                            json.loads(line)
+                            return True
+                        except json.JSONDecodeError:
+                            continue
+                return False
+        except Exception:
+            return False
+
     def read_file_lines(self, file_path):
         """Read lines from a file, handling encoding issues gracefully."""
         try:
@@ -105,7 +127,14 @@ class LogPreprocessor:
     def read_label_map(self, label_file):
         """Read label mappings from a label file."""
         if not label_file:
+            logger.info("No label file provided, treating all logs as normal")
             return {}
+        
+        # Check if the label file is actually a proper JSON label file
+        if not self.is_proper_label_file(label_file):
+            logger.warning(f"Label file {label_file} is not a proper JSON label file. Treating all logs as normal.")
+            return {}
+        
         label_map = {}
         try:
             with open(label_file, 'r', encoding='utf-8', errors='replace') as f:

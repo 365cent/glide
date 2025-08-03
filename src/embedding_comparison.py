@@ -11,7 +11,7 @@ import argparse
 import logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format=\'%(asctime)s - %(levelname)s - %(message)s\')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("EmbeddingComparison")
 
 # Configuration
@@ -26,7 +26,7 @@ class EmbeddingComparator:
 
     def load_embeddings(self, embedding_type, log_type=None):
         """Loads log embeddings and labels for a given embedding type and optional log type."""
-        spinner = Halo(text=f"Loading {embedding_type} embeddings for {log_type if log_type else \'all\'} log types", spinner=\'dots\')
+        spinner = Halo(text=f"Loading {embedding_type} embeddings for {log_type if log_type else 'all'} log types", spinner='dots')
         spinner.start()
         
         try:
@@ -45,9 +45,9 @@ class EmbeddingComparator:
                         label_embedding_path = sub_dir / f"label_{current_log_type}.pkl"
                         
                         if log_embedding_path.exists() and label_embedding_path.exists():
-                            with open(log_embedding_path, \'rb\') as f:
+                            with open(log_embedding_path, 'rb') as f:
                                 all_log_embeddings.append(pickle.load(f))
-                            with open(label_embedding_path, \'rb\') as f:
+                            with open(label_embedding_path, 'rb') as f:
                                 all_label_data.append(pickle.load(f))
                         else:
                             logger.warning(f"Missing embedding files for {embedding_type}/{current_log_type}")
@@ -61,14 +61,14 @@ class EmbeddingComparator:
                 
                 # Combine label data, assuming consistent structure
                 # This part might need more sophisticated merging if label structures differ significantly
-                combined_label_vectors = np.vstack([ld[\'vectors\'] for ld in all_label_data])
-                combined_classes = list(set(cls for ld in all_label_data for cls in ld[\'classes\']))
-                combined_description = all_label_data[0][\'description\'] if all_label_data else ""
+                combined_label_vectors = np.vstack([ld['vectors'] for ld in all_label_data])
+                combined_classes = list(set(cls for ld in all_label_data for cls in ld['classes']))
+                combined_description = all_label_data[0]['description'] if all_label_data else ""
                 
                 label_data = {
-                    \'vectors\': combined_label_vectors,
-                    \'classes\': combined_classes,
-                    \'description\': combined_description
+                    'vectors': combined_label_vectors,
+                    'classes': combined_classes,
+                    'description': combined_description
                 }
                 
                 spinner.succeed(f"Loaded {embedding_type} embeddings successfully.")
@@ -78,9 +78,9 @@ class EmbeddingComparator:
                 spinner.fail(f"Embedding files not found for {embedding_type} and log type {log_type}.")
                 return None, None
 
-            with open(log_embedding_path, \'rb\') as f:
+            with open(log_embedding_path, 'rb') as f:
                 log_embeddings_df = pickle.load(f)
-            with open(label_embedding_path, \'rb\') as f:
+            with open(label_embedding_path, 'rb') as f:
                 label_data = pickle.load(f)
             
             spinner.succeed(f"Loaded {embedding_type} embeddings for {log_type} successfully.")
@@ -95,16 +95,16 @@ class EmbeddingComparator:
         MAX_TOTAL_POINTS = 50000   # Hard cap on total points sent to t-SNE
         MAX_POINTS_PER_CLASS = 1500  # Limit for any single class to avoid domination
 
-        spinner = Halo(text="Preparing visualization data", spinner=\'dots\')
+        spinner = Halo(text="Preparing visualization data", spinner='dots')
         spinner.start()
 
-        df[\'viz_label\'] = df.apply(lambda row: \'Normal\' if not row[\'label_json\'] else \'Attack\', axis=1)
+        df['viz_label'] = df.apply(lambda row: 'Normal' if not row['label_json'] else 'Attack', axis=1)
 
         sampled_df = pd.DataFrame()
-        unique_viz_labels = df[\'viz_label\'].unique()
+        unique_viz_labels = df['viz_label'].unique()
 
         for label in unique_viz_labels:
-            class_df = df[df[\'viz_label\'] == label]
+            class_df = df[df['viz_label'] == label]
             if len(class_df) > MAX_POINTS_PER_CLASS:
                 sampled_df = pd.concat([sampled_df, class_df.sample(MAX_POINTS_PER_CLASS, random_state=42)])
             else:
@@ -121,12 +121,12 @@ class EmbeddingComparator:
 
         spinner.text = "Running t-SNE dimensionality reduction"
         try:
-            tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000, learning_rate=200, metric=\'cosine\')
-            embeddings_list = [np.array(e, dtype=np.float32) for e in sampled_df[\'log_embedding\'].tolist()]
+            tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000, learning_rate=200, metric='cosine')
+            embeddings_list = [np.array(e, dtype=np.float32) for e in sampled_df['log_embedding'].tolist()]
             X_tsne = tsne.fit_transform(np.array(embeddings_list))
             spinner.succeed("t-SNE complete")
         except ValueError as e:
-            spinner.fail(f"t-SNE failed: {e}. This might happen if there\\'s not enough variance in the data or too few samples.")
+            spinner.fail(f"t-SNE failed: {e}. This might happen if there's not enough variance in the data or too few samples.")
             print("Skipping t-SNE visualization.")
             return
 
@@ -135,14 +135,14 @@ class EmbeddingComparator:
         sns.scatterplot(
             x=X_tsne[:, 0],
             y=X_tsne[:, 1],
-            hue=sampled_df[\'viz_label\'],
-            palette=sns.color_palette("hsv", len(sampled_df[\'viz_label\'].unique())),
-            legend=\'full\',
+            hue=sampled_df['viz_label'],
+            palette=sns.color_palette("hsv", len(sampled_df['viz_label'].unique())),
+            legend='full',
             alpha=0.7
         )
-        plt.title(f\'t-SNE Visualization of {embedding_name} Embeddings\')
-        plt.xlabel(\'t-SNE Dimension 1\')
-        plt.ylabel(\'t-SNE Dimension 2\')
+        plt.title(f't-SNE Visualization of {embedding_name} Embeddings')
+        plt.xlabel('t-SNE Dimension 1')
+        plt.ylabel('t-SNE Dimension 2')
         
         if output_file:
             plt.savefig(output_file)
@@ -161,7 +161,7 @@ class EmbeddingComparator:
         for emb_type in embedding_types:
             df, _ = self.load_embeddings(emb_type, log_type)
             if df is not None:
-                df[\'embedding_type\'] = emb_type
+                df['embedding_type'] = emb_type
                 all_dfs.append(df)
         
         if not all_dfs:
@@ -177,17 +177,21 @@ class EmbeddingComparator:
 
 def main():
     parser = argparse.ArgumentParser(description="Compare and visualize different log embeddings.")
-    parser.add_argument("--embedding_types", nargs=\'+\', required=True,
+    parser.add_argument("--embedding_types", nargs='+', required=True,
                         help="List of embedding types to compare (e.g., fasttext word2vec logbert).")
     parser.add_argument("--log_type", type=str, default=None,
-                        help="Optional: Compare embeddings for a specific log type (e.g., \'vpn\').")
+                        help="Optional: Compare embeddings for a specific log type (e.g., 'vpn').")
     
     args = parser.parse_args()
 
     comparator = EmbeddingComparator()
     comparator.compare_embeddings(args.embedding_types, args.log_type)
 
+<<<<<<< Current (Your changes)
 if __name__ == \'__main__\':
+=======
+if __name__ == '__main__':
+>>>>>>> Incoming (Background Agent changes)
     main()
 
 
