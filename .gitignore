@@ -94,7 +94,7 @@ tmp/
 processed/
 results/
 output/
-plots/
+embeddings/
 figures/
 *.png
 *.jpg
