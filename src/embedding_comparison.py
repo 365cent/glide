@@ -187,11 +187,6 @@ def main():
     comparator = EmbeddingComparator()
     comparator.compare_embeddings(args.embedding_types, args.log_type)
 
-<<<<<<< Current (Your changes)
-if __name__ == \'__main__\':
-=======
 if __name__ == '__main__':
->>>>>>> Incoming (Background Agent changes)
     main()
-
 
