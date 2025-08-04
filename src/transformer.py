@@ -17,6 +17,8 @@ Key Features:
 - Adaptive threshold optimization
 - Teacher-student distillation
 - Uncertainty quantification
+- Automatic log type detection
+- Multi-embedding type support
 
 Architecture Components:
 1. Embedding Layer: Projects input embeddings to transformer dimension
@@ -28,7 +30,7 @@ Architecture Components:
 7. Contrastive Head: Contrastive learning objective
 
 Author: Anomaly Detection Pipeline
-Version: 1.0.0
+Version: 2.0.0
 """
 
 import torch
@@ -50,6 +52,11 @@ from tqdm import tqdm
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import seaborn as sns
+import argparse
+import os
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+import time
 
 # Import custom modules
 from smote_oversampling import UnsupervisedSMOTEOversampler
@@ -496,8 +503,6 @@ class EnhancedTransformerTrainer:
     
     def _generate_hierarchical_pseudo_labels(self, features):
         """Generate pseudo-labels for hierarchical classification."""
-        from sklearn.cluster import KMeans
-        
         pseudo_labels = []
         
         # Generate labels for each hierarchy level
@@ -657,6 +662,50 @@ class EnhancedTransformerTrainer:
         
         logger.info(f"Model loaded from {path}")
 
+def detect_available_log_types():
+    """Detect available log types from embeddings directory."""
+    log_types = []
+    
+    # Check for different embedding types
+    embedding_types = ['fasttext', 'word2vec', 'logbert']
+    
+    for embedding_type in embedding_types:
+        embedding_dir = EMBEDDINGS_DIR / embedding_type
+        if embedding_dir.exists():
+            for log_type_dir in embedding_dir.iterdir():
+                if log_type_dir.is_dir():
+                    log_type = log_type_dir.name
+                    # Check if both log and label files exist
+                    log_file = log_type_dir / f"log_{log_type}.pkl"
+                    label_file = log_type_dir / f"label_{log_type}.pkl"
+                    
+                    if log_file.exists() and label_file.exists():
+                        log_types.append((log_type, embedding_type))
+    
+    return log_types
+
+def load_embeddings_and_labels(log_type: str, embedding_type: str):
+    """Load embeddings and labels for a specific log type and embedding type."""
+    embedding_dir = EMBEDDINGS_DIR / embedding_type / log_type
+    
+    # Load embeddings
+    log_file = embedding_dir / f"log_{log_type}.pkl"
+    if not log_file.exists():
+        raise FileNotFoundError(f"Embedding file not found: {log_file}")
+    
+    with open(log_file, 'rb') as f:
+        embeddings = pickle.load(f)
+    
+    # Load labels
+    label_file = embedding_dir / f"label_{log_type}.pkl"
+    if not label_file.exists():
+        raise FileNotFoundError(f"Label file not found: {label_file}")
+    
+    with open(label_file, 'rb') as f:
+        label_data = pickle.load(f)
+    
+    return embeddings, label_data
+
 def create_enhanced_transformer(input_dim: int, config: Optional[TransformerConfig] = None):
     """Create an enhanced transformer model."""
     if config is None:
@@ -681,15 +730,12 @@ def create_enhanced_transformer(input_dim: int, config: Optional[TransformerConf
 
 def main():
     """Main function for command-line usage."""
-    import argparse
-    
     parser = argparse.ArgumentParser(description="Train enhanced transformer model")
-    parser.add_argument("--embedding_path", type=str, required=True,
-                        help="Path to embedding file")
-    parser.add_argument("--log_type", type=str, required=True,
-                        help="Log type")
     parser.add_argument("--embedding_type", type=str, required=True,
-                        help="Embedding type")
+                        choices=['fasttext', 'word2vec', 'logbert'],
+                        help="Embedding type to use")
+    parser.add_argument("--log_type", type=str, default=None,
+                        help="Specific log type to process (auto-detected if not specified)")
     parser.add_argument("--output_dir", type=str, default=str(MODELS_DIR / "enhanced_transformer"),
                         help="Output directory")
     parser.add_argument("--epochs", type=int, default=50,
@@ -700,17 +746,44 @@ def main():
                         help="Use SMOTE oversampling")
     parser.add_argument("--use_hierarchical", action='store_true',
                         help="Use hierarchical classification")
+    parser.add_argument("--d_model", type=int, default=512,
+                        help="Model dimension")
+    parser.add_argument("--n_layers", type=int, default=6,
+                        help="Number of transformer layers")
     
     args = parser.parse_args()
     
-    # Load embeddings
-    with open(args.embedding_path, 'rb') as f:
-        embeddings = pickle.load(f)
+    # Detect available log types if not specified
+    if args.log_type is None:
+        available_log_types = detect_available_log_types()
+        if not available_log_types:
+            logger.error("No log types found with the specified embedding type")
+            return
+        
+        # Filter by embedding type
+        matching_log_types = [(lt, et) for lt, et in available_log_types if et == args.embedding_type]
+        if not matching_log_types:
+            logger.error(f"No log types found for embedding type: {args.embedding_type}")
+            return
+        
+        # Use the first available log type
+        args.log_type = matching_log_types[0][0]
+        logger.info(f"Auto-detected log type: {args.log_type}")
+    
+    # Load embeddings and labels
+    try:
+        embeddings, label_data = load_embeddings_and_labels(args.log_type, args.embedding_type)
+    except FileNotFoundError as e:
+        logger.error(f"Error loading data: {e}")
+        return
     
     logger.info(f"Loaded embeddings with shape: {embeddings.shape}")
+    logger.info(f"Loaded labels with {len(label_data['classes'])} classes")
     
     # Create configuration
     config = TransformerConfig(
+        d_model=args.d_model,
+        n_layers=args.n_layers,
         epochs=args.epochs,
         batch_size=args.batch_size,
         use_smote=args.use_smote,
