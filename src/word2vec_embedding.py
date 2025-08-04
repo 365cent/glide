@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -53,7 +52,11 @@ from halo import Halo
 import gensim.downloader as api
 
 # Import configuration
-from src.config import EMBEDDINGS_DIR as OUTPUT_DIR, PROCESSED_DIR, VECTOR_SIZE
+from config import EMBEDDINGS_DIR, PROCESSED_DIR, VECTOR_SIZE
+
+# Create word2vec subdirectory
+OUTPUT_DIR = EMBEDDINGS_DIR / "word2vec"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def parse_example(example):
     """Parse a TensorFlow Example protocol buffer."""
@@ -375,81 +378,220 @@ def process_embeddings(df, model, use_global_attack_list=False):
     spinner.succeed("Embedding processing complete")
     return df
 
-def visualize_embeddings(df, output_file=None):
-    """Create t-SNE visualization with balanced class sampling for performance and minority visibility."""
-    # Parameters for sampling – tweak here if necessary
-    MAX_TOTAL_POINTS = 50000   # Hard cap on total points sent to t-SNE
-    MAX_POINTS_PER_CLASS = 1500  # Limit for any single class to avoid domination
+def save_embeddings_and_labels(df, model, log_type, use_global_attack_list=False):
+    """Save embeddings, labels, and attack type mappings."""
+    print(f"\nSaving embeddings and labels for log type: {log_type}")
+    
+    # Extract embeddings as numpy array
+    embeddings = np.vstack(df['log_embedding'].tolist()).astype(np.float32)
+    
+    # Save log embeddings
+    log_output_file = OUTPUT_DIR / f"log_{log_type}.pkl"
+    with open(log_output_file, 'wb') as f:
+        pickle.dump(embeddings, f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"Saved log embeddings: {log_output_file} ({embeddings.shape})")
+    
+    # Prepare label data
+    binary_vectors = np.array([vec for vec in df['binary_labels']], dtype=np.int8)
+    
+    # Get attack types based on mode
+    if use_global_attack_list:
+        attack_types = df.attrs.get('attack_types', [])
+    else:
+        log_type_to_attacks = df.attrs.get('log_type_to_attacks', {})
+        attack_types = log_type_to_attacks.get(log_type, [])
+    
+    label_data = {
+        'vectors': binary_vectors,
+        'classes': attack_types,
+        'description': 'Binary multi-label vectors where [0 1 0] means only the second class is present'
+    }
+    
+    # Save label data
+    label_output_file = OUTPUT_DIR / f"label_{log_type}.pkl"
+    with open(label_output_file, 'wb') as f:
+        pickle.dump(label_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"Saved label data: {label_output_file} (vectors: {binary_vectors.shape}, classes: {len(attack_types)})")
+    
+    # Save human-readable attack type mapping
+    attack_types_file = OUTPUT_DIR / f"attack_types_{log_type}.txt"
+    with open(attack_types_file, 'w') as f:
+        f.write(f"Attack Types for Log Type: {log_type}\n")
+        f.write("=" * 50 + "\n\n")
+        f.write(f"Total attack types: {len(attack_types)}\n")
+        f.write(f"Vector dimension: {len(attack_types)}\n\n")
+        
+        if attack_types:
+            f.write("Attack Type Index Mapping:\n")
+            f.write("-" * 30 + "\n")
+            for i, attack_type in enumerate(attack_types):
+                f.write(f"{i:3d}: {attack_type}\n")
+            
+            f.write(f"\nBinary Vector Format:\n")
+            f.write("-" * 20 + "\n")
+            f.write("Each log entry has a binary vector where:\n")
+            f.write("- 1 indicates the presence of that attack type\n")
+            f.write("- 0 indicates the absence of that attack type\n")
+            f.write("- Multiple 1s indicate multiple attack types in one log\n\n")
+            
+            f.write("Examples:\n")
+            f.write("-" * 10 + "\n")
+            if len(attack_types) >= 3:
+                example_vector = [0] * len(attack_types)
+                example_vector[1] = 1
+                f.write(f"{example_vector} = Only '{attack_types[1]}' attack\n")
+                
+                example_vector = [0] * len(attack_types)
+                example_vector[0] = 1
+                example_vector[2] = 1
+                f.write(f"{example_vector} = Both '{attack_types[0]}' and '{attack_types[2]}' attacks\n")
+                
+                example_vector = [0] * len(attack_types)
+                f.write(f"{example_vector} = Normal log (no attacks)\n")
+        else:
+            f.write("No attack types found for this log type.\n")
+    
+    print(f"Saved attack types mapping: {attack_types_file}")
 
+def visualize_embeddings(df, output_file=None):
+    """Create t-SNE visualization of all embeddings."""
     spinner = Halo(text="Preparing visualization data", spinner='dots')
     spinner.start()
 
-    # Build visualization labels for every row (normal vs attacks etc.)
-    df['viz_label'] = df.apply(lambda row: 'Normal' if not row['label_json'] else 'Attack', axis=1)
-
-    # Sample data for t-SNE to manage computational load
-    sampled_df = pd.DataFrame()
-    unique_viz_labels = df['viz_label'].unique()
-
-    for label in unique_viz_labels:
-        class_df = df[df['viz_label'] == label]
-        if len(class_df) > MAX_POINTS_PER_CLASS:
-            sampled_df = pd.concat([sampled_df, class_df.sample(MAX_POINTS_PER_CLASS, random_state=42)])
+    # Generate visualization labels
+    viz_labels = []
+    for label_json_str in df['label_json']:
+        labels = get_labels_from_json(label_json_str)
+        if not labels:
+            viz_labels.append("normal")
         else:
-            sampled_df = pd.concat([sampled_df, class_df])
+            viz_labels.append(", ".join(sorted(labels)))
 
-    if len(sampled_df) > MAX_TOTAL_POINTS:
-        sampled_df = sampled_df.sample(MAX_TOTAL_POINTS, random_state=42)
-
-    spinner.succeed(f"Sampled {len(sampled_df)} points for visualization")
-
-    if sampled_df.empty:
-        print("No data to visualize after sampling.")
-        return
-
-    # Perform t-SNE dimensionality reduction
-    spinner.text = "Running t-SNE dimensionality reduction"
-    try:
-        tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000, learning_rate=200, metric='cosine')
-        # Ensure all embeddings are numpy arrays before passing to t-SNE
-        embeddings_list = [np.array(e, dtype=np.float32) for e in sampled_df['log_embedding'].tolist()]
-        X_tsne = tsne.fit_transform(np.array(embeddings_list))
-        spinner.succeed("t-SNE complete")
-    except ValueError as e:
-        spinner.fail(f"t-SNE failed: {e}. This might happen if there's not enough variance in the data or too few samples.")
-        print("Skipping t-SNE visualization.")
-        return
-
-    # Plotting
-    spinner.text = "Generating plot"
-    plt.figure(figsize=(12, 10))
-    sns.scatterplot(
-        x=X_tsne[:, 0],
-        y=X_tsne[:, 1],
-        hue=sampled_df['viz_label'],
-        palette=sns.color_palette("hsv", len(sampled_df['viz_label'].unique())),
-        legend='full',
-        alpha=0.7
+    # Prepare embeddings for t-SNE
+    embeddings = np.vstack(df['log_embedding'].tolist()).astype(np.float32)
+    
+    spinner.text = f"Running t-SNE on {len(embeddings)} data points"
+    
+    # Calculate perplexity
+    perplexity = min(50, max(5, len(embeddings)//3))
+    
+    # Run t-SNE
+    tsne = TSNE(
+        n_components=2,
+        perplexity=perplexity,
+        n_iter=500,
+        learning_rate='auto',
+        init='pca',
+        method='barnes_hut',
+        random_state=42
     )
-    plt.title('t-SNE Visualization of Log Embeddings')
-    plt.xlabel('t-SNE Dimension 1')
-    plt.ylabel('t-SNE Dimension 2')
+    
+    reduced = tsne.fit_transform(embeddings)
+    
+    # Create plot DataFrame
+    df_plot = pd.DataFrame({
+        'x': reduced[:, 0],
+        'y': reduced[:, 1],
+        'label': viz_labels,
+        'log_type': df['log_type'].tolist()
+    })
+    
+    spinner.succeed("t-SNE dimensionality reduction complete")
+
+    # Count visualization labels
+    label_counts = df_plot['label'].value_counts()
+    print(f"\nVisualization showing ALL {len(label_counts)} unique label combinations:")
+    for label, count in label_counts.head(10).items():
+        percentage = (count / len(df_plot)) * 100
+        print(f"  {label}: {count} ({percentage:.2f}%)")
+    
+    if len(label_counts) > 10:
+        print(f"  ... and {len(label_counts) - 10} more label combinations")
+    
+    # Create color palette - excluding green shades for non-normal logs
+    unique_labels = sorted(df_plot['label'].unique())
+    
+    # Create color palette excluding green colors
+    available_colors = sns.color_palette("Set1", n_colors=9) + sns.color_palette("Set2", n_colors=8) + sns.color_palette("Dark2", n_colors=8)
+    # Filter out green-like colors (approximate RGB ranges for green)
+    non_green_colors = []
+    for color in available_colors:
+        r, g, b = color
+        # Exclude colors where green component is dominant
+        if not (g > 0.6 and g > r and g > b):
+            non_green_colors.append(color)
+    
+    # Extend with more colors if needed
+    if len(unique_labels) > len(non_green_colors):
+        # Add more non-green colors from other palettes
+        extra_colors = sns.color_palette("tab20", n_colors=20)
+        for color in extra_colors:
+            r, g, b = color
+            if not (g > 0.6 and g > r and g > b):
+                non_green_colors.append(color)
+    
+    # Create color mapping
+    color_map = {}
+    color_idx = 0
+    
+    for label in unique_labels:
+        if label == "normal":
+            color_map[label] = "green"
+        else:
+            if color_idx < len(non_green_colors):
+                # Make colors softer by reducing intensity
+                original_color = non_green_colors[color_idx]
+                r, g, b = original_color
+                soft_color = (r * 0.7 + 0.3, g * 0.7 + 0.3, b * 0.7 + 0.3)
+                color_map[label] = soft_color
+            else:
+                # Fallback to matplotlib default colors if we run out
+                color_map[label] = f"C{color_idx % 10}"
+            color_idx += 1
+    
+    # Create plot
+    spinner = Halo(text="Creating visualization plot", spinner='dots')
+    spinner.start()
+    
+    plt.figure(figsize=(16, 10))
+    
+    for label in unique_labels:
+        mask = df_plot['label'] == label
+        subset = df_plot[mask]
+        
+        plt.scatter(
+            subset['x'], 
+            subset['y'], 
+            c=[color_map[label]], 
+            label=label,
+            alpha=0.6,
+            s=20,
+            edgecolors='none'
+        )
+    
+    plt.title(f't-SNE Visualization: Word2Vec Log Embeddings (All {len(unique_labels)} Classes)', fontsize=14)
+    plt.xlabel('t-SNE Component 1', fontsize=12)
+    plt.ylabel('t-SNE Component 2', fontsize=12)
+    
+    # Add legend
+    if len(unique_labels) <= 20:
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        plt.tight_layout(rect=[0,0,0.85,1])
+    else:
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=6, ncol=2)
+        plt.tight_layout(rect=[0,0,0.8,1])
     
     if output_file:
-        plt.savefig(output_file)
-        spinner.succeed(f"Saved t-SNE plot to {output_file}")
+        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        spinner.succeed(f"Saved visualization to {output_file}")
     else:
         plt.show()
-        spinner.succeed("Displayed t-SNE plot")
-
+        spinner.succeed("Displayed visualization")
+    
     plt.close()
-
-def main():
-    parser = argparse.ArgumentParser(description="Generate FastText embeddings for log data.")
-    parser.add_argument("--log_type", type=str, default=None,
-                        help="Optional: Process only a specific log type (e.g., 'vpn').")
-    parser.add_argument("--global_attack_list", action="store_true", help="Use a global list of attack types across all log types.")
-
+    
+    # Clear memory
+    del embeddings, reduced, df_plot
 
 def get_labels_from_json(label_json_str):
     """Extract labels from JSON string."""
@@ -461,7 +603,83 @@ def get_labels_from_json(label_json_str):
     except json.JSONDecodeError:
         return set()
 
+def main():
+    parser = argparse.ArgumentParser(description="Generate Word2Vec embeddings for log data.")
+    parser.add_argument("--log_type", type=str, default=None,
+                        help="Optional: Process only a specific log type (e.g., 'vpn').")
+    parser.add_argument("--global_attack_list", action="store_true", 
+                        help="Use a global list of attack types across all log types.")
+    
+    args = parser.parse_args()
+    
+    try:
+        # Load Word2Vec model
+        print("Step 1: Loading pre-trained Word2Vec model...")
+        model = load_pretrained_word2vec()
+        if model is None:
+            print("❌ Failed to load Word2Vec model. Exiting.")
+            return
+        
+        print(f"✅ Word2Vec model loaded: {model.vector_size}D vectors, {len(model.key_to_index)} vocabulary size")
+        
+        # Load data
+        print("\nStep 2: Loading TFRecord data...")
+        df = load_tfrecord_files(log_type_filter=args.log_type)
+        
+        if df.empty:
+            print("❌ No data loaded. Exiting.")
+            return
+        
+        print(f"✅ Loaded {len(df)} log entries")
+        
+        # Display data distribution
+        if args.log_type:
+            display_data_distribution(df, args.log_type)
+        else:
+            display_data_distribution(df, "all combined")
+        
+        # Process embeddings
+        print("\nStep 3: Processing embeddings...")
+        df = process_embeddings(df, model, use_global_attack_list=args.global_attack_list)
+        
+        print(f"✅ Generated embeddings for {len(df)} log entries")
+        
+        # Save results
+        print("\nStep 4: Saving embeddings and labels...")
+        
+        if args.log_type:
+            # Process single log type
+            save_embeddings_and_labels(df, model, args.log_type, args.global_attack_list)
+        else:
+            # Process all log types
+            for log_type, group_df in df.groupby('log_type'):
+                save_embeddings_and_labels(group_df, model, log_type, args.global_attack_list)
+        
+        # Create visualization
+        print("\nStep 5: Creating visualization...")
+        if args.log_type:
+            viz_file = OUTPUT_DIR / f"visualization_{args.log_type}.png"
+            visualize_embeddings(df, output_file=viz_file)
+        else:
+            viz_file = OUTPUT_DIR / "visualization_all.png"
+            visualize_embeddings(df, output_file=viz_file)
+        
+        print("\n🎉 Word2Vec embedding generation complete!")
+        print(f"📁 Output directory: {OUTPUT_DIR}")
+        
+        # Print summary
+        log_types = df['log_type'].unique()
+        for log_type in log_types:
+            log_file = OUTPUT_DIR / f"log_{log_type}.pkl"
+            label_file = OUTPUT_DIR / f"label_{log_type}.pkl"
+            attack_file = OUTPUT_DIR / f"attack_types_{log_type}.txt"
+            
+            if log_file.exists() and label_file.exists():
+                print(f"  📊 {log_type}: {log_file.name}, {label_file.name}, {attack_file.name}")
+        
+    except Exception as e:
+        print(f"❌ Error during processing: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
-
