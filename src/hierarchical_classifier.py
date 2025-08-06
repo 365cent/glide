@@ -48,6 +48,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
 import warnings
+import torch.nn.functional as F
 
 # Import configuration
 from config import EMBEDDINGS_DIR, MODELS_DIR, PROCESSED_DIR
