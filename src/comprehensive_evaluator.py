@@ -69,7 +69,7 @@ from plotly.subplots import make_subplots
 # Import custom modules
 from smote_oversampling import UnsupervisedSMOTEOversampler
 from hierarchical_classifier import UnsupervisedHierarchicalClassifier, ClassificationResult
-from enhanced_transformer import EnhancedTransformerTrainer, TransformerConfig
+from transformer import EnhancedTransformerTrainer, TransformerConfig
 from config import EMBEDDINGS_DIR, MODELS_DIR, PROCESSED_DIR
 
 # Configure logging
@@ -78,6 +78,31 @@ logger = logging.getLogger("ComprehensiveEvaluator")
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
+
+def convert_numpy_types(obj):
+    """
+    Convert NumPy types to Python native types for JSON serialization.
+    
+    Args:
+        obj: Object that may contain NumPy types
+        
+    Returns:
+        Object with NumPy types converted to Python native types
+    """
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_numpy_types(item) for item in obj)
+    else:
+        return obj
 
 @dataclass
 class EvaluationMetrics:
@@ -191,20 +216,20 @@ class ComprehensiveEvaluator:
         metrics = {}
         
         # Basic classification metrics
-        metrics['accuracy'] = accuracy_score(y_true, y_pred)
-        metrics['precision'] = precision_score(y_true, y_pred, average='weighted', zero_division=0)
-        metrics['recall'] = recall_score(y_true, y_pred, average='weighted', zero_division=0)
-        metrics['f1_score'] = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+        metrics['accuracy'] = float(accuracy_score(y_true, y_pred))
+        metrics['precision'] = float(precision_score(y_true, y_pred, average='weighted', zero_division=0))
+        metrics['recall'] = float(recall_score(y_true, y_pred, average='weighted', zero_division=0))
+        metrics['f1_score'] = float(f1_score(y_true, y_pred, average='weighted', zero_division=0))
         
         # AUC metrics (if scores available)
         if y_scores is not None:
             try:
                 if len(np.unique(y_true)) == 2:  # Binary classification
-                    metrics['auc_roc'] = roc_auc_score(y_true, y_scores)
-                    metrics['auc_pr'] = average_precision_score(y_true, y_scores)
+                    metrics['auc_roc'] = float(roc_auc_score(y_true, y_scores))
+                    metrics['auc_pr'] = float(average_precision_score(y_true, y_scores))
                 else:  # Multi-class
-                    metrics['auc_roc'] = roc_auc_score(y_true, y_scores, multi_class='ovr', average='weighted')
-                    metrics['auc_pr'] = average_precision_score(y_true, y_scores, average='weighted')
+                    metrics['auc_roc'] = float(roc_auc_score(y_true, y_scores, multi_class='ovr', average='weighted'))
+                    metrics['auc_pr'] = float(average_precision_score(y_true, y_scores, average='weighted'))
             except ValueError as e:
                 logger.warning(f"Could not compute AUC metrics: {e}")
                 metrics['auc_roc'] = 0.0
@@ -217,9 +242,9 @@ class ComprehensiveEvaluator:
         # Per-class metrics
         if len(np.unique(y_true)) > 2:
             class_report = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
-            metrics['per_class_metrics'] = class_report
+            metrics['per_class_metrics'] = convert_numpy_types(class_report)
         
-        return metrics
+        return convert_numpy_types(metrics)
     
     def evaluate_hierarchical_performance(self, 
                                         hierarchical_results: List[ClassificationResult],
@@ -254,32 +279,32 @@ class ComprehensiveEvaluator:
             pred_counter = Counter(predictions)
             metrics['level_analysis'][level] = {
                 'distribution': dict(pred_counter),
-                'entropy': self._calculate_entropy(list(pred_counter.values())),
-                'coverage': len(pred_counter) / len(predictions) if predictions else 0
+                'entropy': float(self._calculate_entropy(list(pred_counter.values()))),
+                'coverage': float(len(pred_counter) / len(predictions) if predictions else 0)
             }
         
         # Path analysis
         metrics['path_analysis'] = {
-            'average_path_length': np.mean(path_lengths),
-            'path_length_std': np.std(path_lengths),
-            'path_length_distribution': Counter(path_lengths),
-            'average_confidence': np.mean(confidence_scores),
-            'confidence_std': np.std(confidence_scores)
+            'average_path_length': float(np.mean(path_lengths)),
+            'path_length_std': float(np.std(path_lengths)),
+            'path_length_distribution': dict(Counter(path_lengths)),
+            'average_confidence': float(np.mean(confidence_scores)),
+            'confidence_std': float(np.std(confidence_scores))
         }
         
         # Path consistency (how often similar samples follow similar paths)
         path_consistency = self._calculate_path_consistency(hierarchical_results)
-        metrics['path_consistency'] = path_consistency
+        metrics['path_consistency'] = float(path_consistency)
         
         # Anomaly score analysis
         anomaly_scores = [result.anomaly_score for result in hierarchical_results]
         metrics['anomaly_analysis'] = {
-            'mean_score': np.mean(anomaly_scores),
-            'std_score': np.std(anomaly_scores),
+            'mean_score': float(np.mean(anomaly_scores)),
+            'std_score': float(np.std(anomaly_scores)),
             'score_distribution': np.histogram(anomaly_scores, bins=10)[0].tolist()
         }
         
-        return metrics
+        return convert_numpy_types(metrics)
     
     def evaluate_smote_quality(self, 
                              original_data: np.ndarray,
@@ -307,25 +332,25 @@ class ComprehensiveEvaluator:
         original_imbalance = max(original_dist.values()) / min(original_dist.values()) if original_dist else 1
         smote_imbalance = max(smote_dist.values()) / min(smote_dist.values()) if smote_dist else 1
         
-        metrics['balance_improvement'] = original_imbalance / smote_imbalance
-        metrics['original_imbalance_ratio'] = original_imbalance
-        metrics['smote_imbalance_ratio'] = smote_imbalance
+        metrics['balance_improvement'] = float(original_imbalance / smote_imbalance)
+        metrics['original_imbalance_ratio'] = float(original_imbalance)
+        metrics['smote_imbalance_ratio'] = float(smote_imbalance)
         
         # Sample increase
-        metrics['sample_increase_ratio'] = len(smote_data) / len(original_data)
+        metrics['sample_increase_ratio'] = float(len(smote_data) / len(original_data))
         
         # Synthetic sample quality (if enabled)
         if self.config.evaluate_synthetic_quality:
             synthetic_quality = self._evaluate_synthetic_quality(
                 original_data, smote_data, len(original_data)
             )
-            metrics.update(synthetic_quality)
+            metrics.update(convert_numpy_types(synthetic_quality))
         
         # Diversity analysis
         diversity_score = self._calculate_diversity_score(smote_data, smote_labels)
-        metrics['diversity_score'] = diversity_score
+        metrics['diversity_score'] = float(diversity_score)
         
-        return metrics
+        return convert_numpy_types(metrics)
     
     def evaluate_clustering_quality(self, 
                                   embeddings: np.ndarray,
@@ -346,30 +371,30 @@ class ComprehensiveEvaluator:
         
         # Internal clustering metrics
         if len(np.unique(cluster_labels)) > 1:
-            metrics['silhouette_score'] = silhouette_score(embeddings, cluster_labels)
+            metrics['silhouette_score'] = float(silhouette_score(embeddings, cluster_labels))
             
             # Calinski-Harabasz index
             from sklearn.metrics import calinski_harabasz_score
-            metrics['calinski_harabasz_score'] = calinski_harabasz_score(embeddings, cluster_labels)
+            metrics['calinski_harabasz_score'] = float(calinski_harabasz_score(embeddings, cluster_labels))
             
             # Davies-Bouldin index
             from sklearn.metrics import davies_bouldin_score
-            metrics['davies_bouldin_score'] = davies_bouldin_score(embeddings, cluster_labels)
+            metrics['davies_bouldin_score'] = float(davies_bouldin_score(embeddings, cluster_labels))
         
         # External clustering metrics (if true labels available)
         if true_labels is not None:
-            metrics['adjusted_rand_index'] = adjusted_rand_score(true_labels, cluster_labels)
-            metrics['normalized_mutual_info'] = normalized_mutual_info_score(true_labels, cluster_labels)
-            metrics['homogeneity_score'] = homogeneity_score(true_labels, cluster_labels)
-            metrics['completeness_score'] = completeness_score(true_labels, cluster_labels)
+            metrics['adjusted_rand_index'] = float(adjusted_rand_score(true_labels, cluster_labels))
+            metrics['normalized_mutual_info'] = float(normalized_mutual_info_score(true_labels, cluster_labels))
+            metrics['homogeneity_score'] = float(homogeneity_score(true_labels, cluster_labels))
+            metrics['completeness_score'] = float(completeness_score(true_labels, cluster_labels))
         
         # Cluster distribution analysis
         cluster_dist = Counter(cluster_labels)
         metrics['cluster_distribution'] = dict(cluster_dist)
-        metrics['cluster_entropy'] = self._calculate_entropy(list(cluster_dist.values()))
+        metrics['cluster_entropy'] = float(self._calculate_entropy(list(cluster_dist.values())))
         metrics['n_clusters'] = len(cluster_dist)
         
-        return metrics
+        return convert_numpy_types(metrics)
     
     def evaluate_computational_performance(self, 
                                          model_trainer: Any,
@@ -393,8 +418,8 @@ class ComprehensiveEvaluator:
         end_time = time.time()
         
         avg_inference_time = (end_time - start_time) / self.config.benchmark_iterations
-        metrics['inference_time_per_sample'] = avg_inference_time / len(test_data)
-        metrics['inference_throughput'] = len(test_data) / avg_inference_time
+        metrics['inference_time_per_sample'] = float(avg_inference_time / len(test_data))
+        metrics['inference_throughput'] = float(len(test_data) / avg_inference_time)
         
         # Memory usage (if profiling enabled)
         if self.config.memory_profiling:
@@ -403,9 +428,9 @@ class ComprehensiveEvaluator:
             
             process = psutil.Process(os.getpid())
             memory_info = process.memory_info()
-            metrics['memory_usage_mb'] = memory_info.rss / 1024 / 1024
+            metrics['memory_usage_mb'] = float(memory_info.rss / 1024 / 1024)
         
-        return metrics
+        return convert_numpy_types(metrics)
     
     def perform_cross_validation(self, 
                                 embeddings: np.ndarray,
@@ -459,10 +484,10 @@ class ComprehensiveEvaluator:
         for metric in fold_metrics[0].keys():
             if isinstance(fold_metrics[0][metric], (int, float)):
                 values = [fm[metric] for fm in fold_metrics]
-                cv_results['mean_metrics'][metric] = np.mean(values)
-                cv_results['std_metrics'][metric] = np.std(values)
+                cv_results['mean_metrics'][metric] = float(np.mean(values))
+                cv_results['std_metrics'][metric] = float(np.std(values))
         
-        return cv_results
+        return convert_numpy_types(cv_results)
     
     def perform_ablation_study(self, 
                               base_config: Dict,
@@ -504,9 +529,9 @@ class ComprehensiveEvaluator:
                         contribution[metric] = base_results[metric] - results[metric]
                 contributions[key] = contribution
         
-        ablation_results['contributions'] = contributions
+        ablation_results['contributions'] = convert_numpy_types(contributions)
         
-        return ablation_results
+        return convert_numpy_types(ablation_results)
     
     def compare_embedding_methods(self, 
                                 embedding_results: Dict[str, Dict],
@@ -548,8 +573,8 @@ class ComprehensiveEvaluator:
                     statistic, p_value = stats.ttest_rel(values_list[0], values_list[1])
                     comparison['statistical_tests'][metric] = {
                         'test': 'paired_t_test',
-                        'statistic': statistic,
-                        'p_value': p_value,
+                        'statistic': float(statistic),
+                        'p_value': float(p_value),
                         'significant': p_value < self.config.significance_level
                     }
                 else:
@@ -557,8 +582,8 @@ class ComprehensiveEvaluator:
                     statistic, p_value = stats.f_oneway(*values_list)
                     comparison['statistical_tests'][metric] = {
                         'test': 'anova',
-                        'statistic': statistic,
-                        'p_value': p_value,
+                        'statistic': float(statistic),
+                        'p_value': float(p_value),
                         'significant': p_value < self.config.significance_level
                     }
             
@@ -567,7 +592,7 @@ class ComprehensiveEvaluator:
                 sorted_methods = sorted(metric_values.items(), key=lambda x: x[1], reverse=True)
                 comparison['rankings'][metric] = [method for method, _ in sorted_methods]
         
-        return comparison
+        return convert_numpy_types(comparison)
     
     def generate_evaluation_report(self, 
                                  results: Dict[str, Any],
@@ -798,11 +823,11 @@ class ComprehensiveEvaluator:
         
         # Find distances from synthetic to original samples
         distances, _ = nn.kneighbors(synthetic_data)
-        avg_distance = np.mean(distances[:, 1])  # Exclude self-distance
+        avg_distance = float(np.mean(distances[:, 1]))  # Exclude self-distance
         
         # Quality score based on distance distribution
         # Good synthetic samples should be close to but not identical to original samples
-        distance_std = np.std(distances[:, 1])
+        distance_std = float(np.std(distances[:, 1]))
         quality_score = 1.0 / (1.0 + avg_distance) * (1.0 + distance_std)
         
         metrics['synthetic_quality_score'] = min(quality_score, 1.0)
@@ -818,7 +843,7 @@ class ComprehensiveEvaluator:
         
         # Calculate pairwise distances
         distances = pdist(data)
-        avg_distance = np.mean(distances)
+        avg_distance = float(np.mean(distances))
         
         # Normalize by data dimensionality
         diversity_score = avg_distance / np.sqrt(data.shape[1])
@@ -830,10 +855,10 @@ class ComprehensiveEvaluator:
         # This is a placeholder - implement based on your specific model training logic
         # For now, return dummy metrics
         return {
-            'accuracy': np.random.random(),
-            'precision': np.random.random(),
-            'recall': np.random.random(),
-            'f1_score': np.random.random()
+            'accuracy': float(np.random.random()),
+            'precision': float(np.random.random()),
+            'recall': float(np.random.random()),
+            'f1_score': float(np.random.random())
         }
     
     def _create_performance_radar_chart(self, metrics: Dict, save_path: Path):
